@@ -1,0 +1,36 @@
+# Auditra — konfigurasi pipeline (reproducibility)
+version: "1.0"
+
+paths:
+  raw: data/year-2026_merged.csv
+  clean: data/data_clean.csv
+  scored: output/data_scored.csv
+  network: output/data_network.csv
+  geo_lookup: geo/geo_lookup.csv
+  reports_dir: output/reports
+
+scoring:
+  weights:
+    s1_metode: 0.20
+    s2_pagu_anomali: 0.20
+    s3_fragmentasi: 0.15
+    s4_konsentrasi: 0.15
+    s5_umkm: 0.10
+    s6_dana_metode: 0.10
+    s7_reputasi: 0.10
+  frag_pagu_threshold: 200000000
+  frag_similarity_threshold: 0.6
+  risk_thresholds:
+    KRITIS: 70
+    TINGGI: 50
+    SEDANG: 30
+
+eda:
+  sample_size: 50000
+  random_seed: 42
+
+validation:
+  min_rows: 1000
+  rpi_min: 0
+  rpi_max: 100
+  valid_risk_labels: [KRITIS, TINGGI, SEDANG, RENDAH]
