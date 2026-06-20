@@ -1,6 +1,15 @@
 data/year-2026_merged.csv
 data/data_clean.csv
+year-2026_merged.csv
 output/data_scored.csv
 output/data_network.csv
+output/data_network.parquet
+output/auditra.duckdb
 output/kg_nodes.csv
 output/kg_edges.csv
+output/reports/
+web/node_modules
+web/dist
+__pycache__
+*.pyc
+.env
