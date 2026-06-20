@@ -1,5 +1,16 @@
-streamlit
+# Pipeline analisis data
 pandas
+numpy
 plotly
 networkx
-numpy
+scikit-learn
+scipy
+pyyaml
+
+# Testing (opsional)
+pytest
+
+# Legacy dashboard (opsional)
+streamlit
+dash
+dash-bootstrap-components
