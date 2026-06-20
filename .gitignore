@@ -10,6 +10,7 @@ output/kg_edges.csv
 output/reports/
 web/node_modules
 web/dist
+web/tsconfig.tsbuildinfo
 __pycache__
 *.pyc
 .env
