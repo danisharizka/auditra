@@ -4,74 +4,56 @@ AUDITRA - KNOWLEDGE GRAPH SUMMARY
 ============================================================
 
 STATISTIK GRAPH
-  Total nodes        : 35,337
-  Total edges        : 207,581
+  Total nodes        : 35,320
+  Total edges        : 207,427
   Density            : 0.000166
 
 DISTRIBUSI NODE
 node_type
-satker      34618
-lembaga       663
+satker      34602
+lembaga       662
 provinsi       40
 metode          9
 jenis           7
 
 DISTRIBUSI RISK LABEL (final, post-KG)
 risk_label
-RENDAH    2384583
-SEDANG     600930
-TINGGI      23593
-KRITIS        562
+RENDAH    2379187
+SEDANG     599611
+TINGGI      23626
+KRITIS        568
 
 TOP 10 LEMBAGA - RISK INFLUENCE TERTINGGI (weighted degree * avg_rpi)
                                     label  risk_influence  avg_rpi  n_paket
-                    Badan Pusat Statistik        0.023426    27.86    79076
-   Kementerian Agraria dan Tata Ruang/BPN        0.016785    26.80    58901
-                     Provinsi DKI Jakarta        0.014836    23.63    59043
-                     Kementerian Keuangan        0.013997    39.58    33258
-                   Kementerian Pertahanan        0.012414    12.28    95066
-  Kementerian Imigrasi dan Pemasyarakatan        0.012118    30.68    37145
-                  Kementerian Perhubungan        0.008261    34.81    22318
-                        Kementerian Agama        0.008153    27.42    27963
-Kementerian Pendidikan Dasar dan Menengah        0.007201    44.70    15149
-                             Kota Bandung        0.007182    27.86    24244
+                    Badan Pusat Statistik        0.023435    27.83    79076
+   Kementerian Agraria dan Tata Ruang/BPN        0.016804    26.79    58901
+                     Provinsi DKI Jakarta        0.014864    23.64    59043
+                     Kementerian Keuangan        0.014018    39.58    33258
+                   Kementerian Pertahanan        0.012432    12.28    95066
+  Kementerian Imigrasi dan Pemasyarakatan        0.012140    30.69    37145
+                  Kementerian Perhubungan        0.008273    34.81    22318
+                        Kementerian Agama        0.008165    27.42    27963
+Kementerian Pendidikan Dasar dan Menengah        0.007213    44.71    15149
+                             Kota Bandung        0.007190    27.85    24244
 
 TOP 10 LEMBAGA - RATA-RATA RPI TERTINGGI
                                                                    label  avg_rpi  n_paket  risk_influence
-                     Kementerian Koordinator Bidang Politik dan Keamanan    53.16     2433        0.001375
-Kementerian Koordinator Bidang Infrastruktur dan Pembangunan Kewilayahan    52.07     1264        0.000700
-                                              Badan Informasi Geospasial    51.32     1583        0.000864
-                                        Kementerian Pemuda Dan Olah Raga    49.76     1134        0.000600
-                            Bendahara Umum Negara (Kementerian Keuangan)    49.51       29        0.000015
-                                   Badan Nasional Penanggulangan Bencana    47.15      179        0.000090
-                                                 Kementerian Luar Negeri    46.59    14488        0.007178
-                                                     Badan Gizi Nasional    45.73     1201        0.000584
+                     Kementerian Koordinator Bidang Politik dan Keamanan    53.17     2433        0.001378
+Kementerian Koordinator Bidang Infrastruktur dan Pembangunan Kewilayahan    52.07     1264        0.000701
+                                              Badan Informasi Geospasial    51.33     1583        0.000865
+                                        Kementerian Pemuda Dan Olah Raga    49.76     1134        0.000601
+                            Bendahara Umum Negara (Kementerian Keuangan)    49.52       29        0.000015
+                                   Badan Nasional Penanggulangan Bencana    47.16      179        0.000090
+                                                 Kementerian Luar Negeri    46.60    14488        0.007190
+                                                     Badan Gizi Nasional    45.73     1201        0.000585
                 Kementerian Pemberdayaan Perempuan Dan Perlindungan Anak    45.42      519        0.000251
-                               Kementerian Pendidikan Dasar dan Menengah    44.70    15149        0.007201
+                               Kementerian Pendidikan Dasar dan Menengah    44.71    15149        0.007213
 
 CLUSTER LEMBAGA BERISIKO
   Jumlah cluster     : 36
   Lembaga per cluster:
-0     568
+0     567
 1      61
-2       1
-3       1
-4       1
-5       1
-6       1
-7       1
-8       1
-9       1
-10      1
-11      1
-12      1
-13      1
-14      1
-15      1
-16      1
-17      1
-18      1
-19      1
 20      1
 21      1
 22      1
@@ -87,6 +69,24 @@ CLUSTER LEMBAGA BERISIKO
 32      1
 33      1
 34      1
+19      1
+18      1
+17      1
+8       1
+2       1
+3       1
+4       1
+5       1
+6       1
+7       1
+9       1
+16      1
+10      1
+11      1
+12      1
+13      1
+14      1
+15      1
 35      1
 
 ============================================================
