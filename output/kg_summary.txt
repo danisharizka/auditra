@@ -5,7 +5,7 @@ AUDITRA - KNOWLEDGE GRAPH SUMMARY
 
 STATISTIK GRAPH
   Total nodes        : 35,337
-  Total edges        : 207,568
+  Total edges        : 207,581
   Density            : 0.000166
 
 DISTRIBUSI NODE
@@ -18,8 +18,8 @@ jenis           7
 
 DISTRIBUSI RISK LABEL (final, post-KG)
 risk_label
-RENDAH    2384584
-SEDANG     600929
+RENDAH    2384583
+SEDANG     600930
 TINGGI      23593
 KRITIS        562
 
@@ -31,7 +31,7 @@ TOP 10 LEMBAGA - RISK INFLUENCE TERTINGGI (weighted degree * avg_rpi)
                      Kementerian Keuangan        0.013997    39.58    33258
                    Kementerian Pertahanan        0.012414    12.28    95066
   Kementerian Imigrasi dan Pemasyarakatan        0.012118    30.68    37145
-                  Kementerian Perhubungan        0.008260    34.81    22318
+                  Kementerian Perhubungan        0.008261    34.81    22318
                         Kementerian Agama        0.008153    27.42    27963
 Kementerian Pendidikan Dasar dan Menengah        0.007201    44.70    15149
                              Kota Bandung        0.007182    27.86    24244
@@ -40,7 +40,7 @@ TOP 10 LEMBAGA - RATA-RATA RPI TERTINGGI
                                                                    label  avg_rpi  n_paket  risk_influence
                      Kementerian Koordinator Bidang Politik dan Keamanan    53.16     2433        0.001375
 Kementerian Koordinator Bidang Infrastruktur dan Pembangunan Kewilayahan    52.07     1264        0.000700
-                                              Badan Informasi Geospasial    51.32     1583        0.000862
+                                              Badan Informasi Geospasial    51.32     1583        0.000864
                                         Kementerian Pemuda Dan Olah Raga    49.76     1134        0.000600
                             Bendahara Umum Negara (Kementerian Keuangan)    49.51       29        0.000015
                                    Badan Nasional Penanggulangan Bencana    47.15      179        0.000090
