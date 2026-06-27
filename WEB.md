@@ -60,7 +60,7 @@ Buka: http://localhost:5173
 api/           FastAPI + DuckDB
 web/           React + Vite + Tailwind + ECharts + Plotly
 scripts/       export_parquet.py
-01-04_*.py     Pipeline analisis (tetap)
+01-06_*.py       Pipeline analisis
 ```
 
 ## Performa (optimasi v1.1)
