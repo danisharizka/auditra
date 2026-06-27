@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import ColorLegend from "./ColorLegend";
 import Plot from "react-plotly.js";
 import { useTheme } from "../theme/ThemeContext";
 import type { ChoroplethRow } from "../types";
@@ -14,34 +15,22 @@ export default function ChoroplethMap({ data, geojson, isDark: isDarkProp }: Pro
   const { colors, isDark: isDarkTheme } = useTheme();
   const isDark = isDarkProp ?? isDarkTheme;
 
-  const statsMap = useMemo(() => {
-    const m = new Map<string, ChoroplethRow>();
-    data.forEach((d) => m.set(normalizeKabkotId(d.kabkot_id), d));
-    return m;
-  }, [data]);
-
-  const mergedGeo = useMemo(() => {
+  const normalizedGeo = useMemo(() => {
     if (!geojson) return null;
     return {
       ...geojson,
-      features: geojson.features.map((f) => {
-        const id = normalizeKabkotId(f.properties?.kabkot_id as string | number);
-        const stat = statsMap.get(id);
-        return {
-          ...f,
-          properties: {
-            ...f.properties,
-            kabkot_id: id,
-            avg_rpi: stat?.avg_rpi ?? null,
-            n_paket: stat?.n_paket ?? 0,
-          },
-        };
-      }),
+      features: geojson.features.map((f) => ({
+        ...f,
+        properties: {
+          ...f.properties,
+          kabkot_id: normalizeKabkotId(f.properties?.kabkot_id as string | number),
+        },
+      })),
     };
-  }, [geojson, statsMap]);
+  }, [geojson]);
 
   const plotConfig = useMemo(() => {
-    if (!mergedGeo || data.length === 0) return null;
+    if (!normalizedGeo || data.length === 0) return null;
 
     const locations = data.map((d) => normalizeKabkotId(d.kabkot_id));
     const z = data.map((d) => d.avg_rpi);
@@ -53,8 +42,8 @@ export default function ChoroplethMap({ data, geojson, isDark: isDarkProp }: Pro
     return {
       data: [
         {
-          type: "choroplethmapbox" as const,
-          geojson: mergedGeo,
+          type: "choropleth" as const,
+          geojson: normalizedGeo,
           locations,
           z,
           text,
@@ -78,7 +67,7 @@ export default function ChoroplethMap({ data, geojson, isDark: isDarkProp }: Pro
               ],
           zmin: 0,
           zmax: Math.max(60, ...z, 1),
-          marker: { opacity: 0.85 },
+          marker: { line: { width: 0.3, color: isDark ? "#64748b" : "#cbd5e1" } },
           hovertemplate: "%{text}<extra></extra>",
           colorbar: {
             tickfont: { color: colors.textPrimary },
@@ -87,11 +76,16 @@ export default function ChoroplethMap({ data, geojson, isDark: isDarkProp }: Pro
         },
       ],
       layout: {
-        mapbox: {
-          // white-bg avoids blank tiles when Carto CDN is slow/unreachable
-          style: isDark ? "white-bg" : "open-street-map",
-          center: { lat: -2.3, lon: 117.5 },
-          zoom: 3.8,
+        geo: {
+          fitbounds: "geojson" as const,
+          bgcolor: colors.chartBg,
+          showframe: false,
+          showcoastlines: false,
+          showland: false,
+          showocean: true,
+          oceancolor: colors.chartBg,
+          lakecolor: colors.chartBg,
+          projection: { type: "mercator" as const },
         },
         paper_bgcolor: colors.chartBg,
         plot_bgcolor: colors.chartBg,
@@ -100,7 +94,7 @@ export default function ChoroplethMap({ data, geojson, isDark: isDarkProp }: Pro
         font: { color: colors.textPrimary, family: "Inter, system-ui" },
       },
     };
-  }, [mergedGeo, data, isDark, colors.textPrimary, colors.chartBg]);
+  }, [normalizedGeo, data, isDark, colors.textPrimary, colors.chartBg]);
 
   if (!geojson) {
     return <div className="flex h-[480px] items-center justify-center text-muted">Memuat peta…</div>;
@@ -119,12 +113,23 @@ export default function ChoroplethMap({ data, geojson, isDark: isDarkProp }: Pro
   }
 
   return (
-    <Plot
-      data={plotConfig.data}
-      layout={plotConfig.layout}
-      config={{ displayModeBar: false, responsive: true }}
-      useResizeHandler
-      style={{ width: "100%", height: 480, background: colors.chartBg }}
-    />
+    <div>
+      <Plot
+        data={plotConfig.data}
+        layout={plotConfig.layout}
+        config={{ displayModeBar: false, responsive: true }}
+        useResizeHandler
+        style={{ width: "100%", height: 480, background: colors.chartBg }}
+      />
+      <ColorLegend
+        className="mt-2 justify-center sm:justify-start"
+        items={[
+          { color: isDark ? "#1e293b" : "#e2e8f0", label: "Rendah (RPI ≈ 0)" },
+          { color: isDark ? "#6b7a8f" : "#fcd34d", label: "Sedang" },
+          { color: isDark ? "#e08a3c" : "#f97316", label: "Tinggi" },
+          { color: "#ef4444", label: "Sangat tinggi (RPI ≥ 50)" },
+        ]}
+      />
+    </div>
   );
 }
