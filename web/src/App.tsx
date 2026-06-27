@@ -7,6 +7,7 @@ import {
   fetchPackages,
 } from "./api/client";
 import { formatApiError } from "./api/errors";
+import ColorLegend from "./components/ColorLegend";
 import ChoroplethMap from "./components/ChoroplethMap";
 import { MetodeBar, RadarChart, RiskDonut, ScatterChart } from "./components/Charts";
 import FilterBar from "./components/FilterBar";
@@ -196,9 +197,9 @@ export default function App() {
 
         <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-12">
           <div className="panel lg:col-span-8">
-            <h2 className="mb-1 text-sm font-semibold text-primary">Peta Risiko Pengadaan per Kabupaten/Kota</h2>
+            <h2 className="mb-1 text-sm font-semibold text-primary">Peta Risiko Kabupaten/Kota</h2>
             <p className="mb-3 text-xs text-muted">
-              Agregat dihitung dari seluruh paket yang match filter — bukan sample
+              Warna = rata-rata RPI seluruh paket per wilayah (agregat penuh, bukan sample)
             </p>
             <ChoroplethMap data={choropleth} geojson={geojson} isDark={isDark} />
           </div>
@@ -218,19 +219,28 @@ export default function App() {
           <div className="panel lg:col-span-5">
             <h2 className="mb-2 text-sm font-semibold text-primary">Rata-rata RPI per Metode</h2>
             <MetodeBar data={metode} />
+            <ColorLegend
+              className="mt-2"
+              items={[
+                { color: "#3b82f6", label: "Biru — RPI < 30" },
+                { color: "#f97316", label: "Oranye — RPI ≥ 30" },
+              ]}
+            />
           </div>
           <div className="panel lg:col-span-7">
             <h2 className="mb-2 text-sm font-semibold text-primary">Distribusi Pagu vs RPI</h2>
             <p className="mb-2 text-[11px] text-muted">
-              Scatter max 3.000 titik untuk performa; statistik card/table pakai semua baris
+              Scatter max 3.000 titik · Biru = rendah, oranye/merah = tinggi risiko
             </p>
             <ScatterChart points={scatter} />
           </div>
         </div>
 
         <div className="panel mb-4">
-          <h2 className="mb-1 text-sm font-semibold text-primary">Knowledge Graph — Jaringan Lembaga & Satker</h2>
-          <p className="mb-3 text-xs text-muted">Oranye: RPI ≥ 30 · Biru: RPI &lt; 30</p>
+          <h2 className="mb-1 text-sm font-semibold text-primary">Knowledge Graph Lembaga & Satker</h2>
+          <p className="mb-3 text-xs text-muted">
+            Relasi lembaga–satker–metode dari data SIRUP · Subgraf prioritas risiko
+          </p>
           <KgNetwork nodes={kg.nodes} edges={kg.edges} />
         </div>
 
