@@ -22,6 +22,7 @@ from api.config import (
     KG_NODES_CSV,
 )
 from api.filters import build_where
+from api.owner_category import MAP_MODES, OWNER_CATEGORY_EXPR
 
 
 class DataStore:
@@ -36,6 +37,7 @@ class DataStore:
         self._packages_cache = TTLCache(maxsize=128, ttl_seconds=120)
         self._filter_options_cache: dict | None = None
         self._meta_cache: dict | None = None
+        self._geo_coverage_cache: dict | None = None
         self._geojson_cache: dict | None = None
         self._kg_nodes: pd.DataFrame | None = None
         self._kg_edges: pd.DataFrame | None = None
@@ -191,6 +193,51 @@ class DataStore:
             with open(GEOJSON_PATH, encoding="utf-8") as f:
                 self._geojson_cache = json.load(f)
 
+        self._geo_coverage_cache = self._compute_geo_coverage()
+
+    def _compute_geo_coverage(self) -> dict:
+        with self._lock:
+            total = int(self.conn.execute("SELECT COUNT(*) FROM packages").fetchone()[0])
+            if not GEO_LOOKUP_CSV.exists() or total == 0:
+                return {
+                    "total_packages": total,
+                    "mapped_packages": 0,
+                    "unmapped_packages": total,
+                    "multi_lokasi_packages": 0,
+                }
+
+            mapped = int(
+                self.conn.execute(
+                    "SELECT COUNT(DISTINCT id) FROM packages_geo"
+                ).fetchone()[0]
+            )
+            multi = int(
+                self.conn.execute(
+                    """
+                    SELECT COUNT(DISTINCT p.id)
+                    FROM packages p
+                    INNER JOIN (
+                        SELECT lokasi_sirup
+                        FROM geo_lookup
+                        GROUP BY lokasi_sirup
+                        HAVING COUNT(DISTINCT kabkot_id) > 1
+                    ) m ON p.lokasi = m.lokasi_sirup
+                    """
+                ).fetchone()[0]
+            )
+
+        return {
+            "total_packages": total,
+            "mapped_packages": mapped,
+            "unmapped_packages": max(0, total - mapped),
+            "multi_lokasi_packages": multi,
+        }
+
+    def geo_coverage(self) -> dict:
+        if self._geo_coverage_cache is None:
+            self._geo_coverage_cache = self._compute_geo_coverage()
+        return dict(self._geo_coverage_cache)
+
     def meta(self) -> dict:
         return dict(self._meta_cache or {})
 
@@ -248,7 +295,11 @@ class DataStore:
             return cached
 
         where, params = build_where(
-            provinsi=provinsi, lembaga=lembaga, metode=metode, risk_min=risk_min
+            provinsi=provinsi,
+            lembaga=lembaga,
+            metode=metode,
+            risk_min=risk_min,
+            packages_via_geo=GEO_LOOKUP_CSV.exists(),
         )
 
         with self._lock:
@@ -258,9 +309,9 @@ class DataStore:
                 SELECT
                     COUNT(*) AS total_paket,
                     COALESCE(SUM(pagu) / 1e9, 0) AS total_pagu_miliar,
-                    SUM(CASE WHEN risk_label = 'KRITIS' THEN 1 ELSE 0 END) AS paket_kritis,
+                    COALESCE(SUM(CASE WHEN risk_label = 'KRITIS' THEN 1 ELSE 0 END), 0) AS paket_kritis,
                     COALESCE(AVG(RPI), 0) AS avg_rpi,
-                    SUM(CASE WHEN s3_fragmentasi >= 0.6 THEN 1 ELSE 0 END) AS split_contract,
+                    COALESCE(SUM(CASE WHEN s3_fragmentasi >= 0.6 THEN 1 ELSE 0 END), 0) AS split_contract,
                     AVG(s1_metode) AS s1,
                     AVG(s2_pagu_anomali) AS s2,
                     AVG(s3_fragmentasi) AS s3,
@@ -307,39 +358,37 @@ class DataStore:
                 SELECT lembaga, ROUND(AVG(RPI), 2) AS avg_rpi,
                     SUM(CASE WHEN risk_label = 'KRITIS' THEN 1 ELSE 0 END) AS n_kritis,
                     SUM(CASE WHEN risk_label = 'TINGGI' THEN 1 ELSE 0 END) AS n_tinggi,
+                    SUM(CASE WHEN risk_label = 'KRITIS'
+                        AND (s2_pagu_anomali >= 0.8 OR s3_fragmentasi >= 0.6)
+                        THEN 1 ELSE 0 END) AS n_ekstrem,
+                    ROUND(COALESCE(SUM(pagu) / 1e9, 0), 2) AS total_pagu_miliar,
                     COUNT(*) AS n_paket
                 FROM packages WHERE {where}
-                GROUP BY lembaga ORDER BY avg_rpi DESC LIMIT 25
+                GROUP BY lembaga ORDER BY avg_rpi DESC LIMIT 100
                 """,
                 params,
             ).fetchdf()
 
             choropleth_df = pd.DataFrame()
+            choropleth_modes: dict[str, list] = {m: [] for m in MAP_MODES}
             rank_prov_df = pd.DataFrame()
             if GEO_LOOKUP_CSV.exists():
                 ch_where, ch_params = build_where(
-                    lembaga=lembaga, metode=metode, risk_min=risk_min, use_geo=True
+                    lembaga=lembaga,
+                    metode=metode,
+                    risk_min=risk_min,
+                    packages_geo=True,
+                    table_prefix="pg.",
                 )
-                choropleth_df = self.conn.execute(
-                    f"""
-                    SELECT
-                        printf('%.2f', TRY_CAST(kabkot_id AS DOUBLE)) AS kabkot_id,
-                        kabkot_name, prov_name,
-                        COUNT(*) AS n_paket,
-                        ROUND(AVG(RPI), 2) AS avg_rpi,
-                        ROUND(SUM(pagu) / 1e9, 2) AS total_pagu_miliar,
-                        SUM(CASE WHEN risk_label = 'KRITIS' THEN 1 ELSE 0 END) AS n_kritis,
-                        SUM(CASE WHEN risk_label = 'TINGGI' THEN 1 ELSE 0 END) AS n_tinggi
-                    FROM packages_geo
-                    WHERE {ch_where}
-                    GROUP BY kabkot_id, kabkot_name, prov_name
-                    ORDER BY avg_rpi DESC
-                    """,
-                    ch_params,
-                ).fetchdf()
+                choropleth_modes = self._fetch_choropleth_modes(ch_where, ch_params)
+                choropleth_df = pd.DataFrame(choropleth_modes.get("kl", []))
 
                 prov_where, prov_params = build_where(
-                    lembaga=lembaga, metode=metode, risk_min=risk_min, use_geo=True
+                    provinsi=provinsi,
+                    lembaga=lembaga,
+                    metode=metode,
+                    risk_min=risk_min,
+                    packages_geo=True,
                 )
                 rank_prov_df = self.conn.execute(
                     f"""
@@ -356,11 +405,11 @@ class DataStore:
 
         bundle = {
             "overview": {
-                "total_paket": int(stats[0]),
-                "total_pagu_miliar": round(float(stats[1]), 2),
-                "paket_kritis": int(stats[2]),
-                "avg_rpi": round(float(stats[3]), 2),
-                "split_contract": int(stats[4]),
+                "total_paket": int(stats[0] or 0),
+                "total_pagu_miliar": round(float(stats[1] or 0), 2),
+                "paket_kritis": int(stats[2] or 0),
+                "avg_rpi": round(float(stats[3] or 0), 2),
+                "split_contract": int(stats[4] or 0),
             },
             "signals": {
                 "Metode": round(float(stats[5] or 0), 4),
@@ -376,26 +425,145 @@ class DataStore:
             "scatter": scatter_df.to_dict(orient="records"),
             "rank_lembaga": rank_lem_df.to_dict(orient="records"),
             "choropleth": choropleth_df.to_dict(orient="records"),
+            "choropleth_modes": choropleth_modes,
             "rank_provinsi": rank_prov_df.to_dict(orient="records"),
-            "kg": self._kg_subset(lembaga),
+            "geo_coverage": self.geo_coverage(),
+            "kg": self._kg_subset_safe(provinsi, lembaga, metode, risk_min),
         }
         self._dashboard_cache.set(key, bundle)
         return bundle
 
-    def _kg_subset(self, lembaga: str) -> dict:
+    def _fetch_choropleth_modes(self, where: str, params: list) -> dict[str, list]:
+        """Agregat kab/kota per mode pemilik — seluruh Indonesia (tanpa filter provinsi)."""
+        modes: dict[str, list] = {}
+        with self._lock:
+            for mode in MAP_MODES:
+                df = self.conn.execute(
+                    f"""
+                    SELECT
+                        printf('%.2f', TRY_CAST(pg.kabkot_id AS DOUBLE)) AS kabkot_id,
+                        pg.kabkot_name,
+                        pg.prov_name,
+                        COUNT(*) AS n_paket,
+                        ROUND(AVG(pg.RPI), 2) AS avg_rpi,
+                        ROUND(SUM(pg.pagu) / 1e9, 2) AS total_pagu_miliar,
+                        ROUND(SUM(CASE WHEN pg.RPI >= 50 THEN pg.pagu ELSE 0 END) / 1e9, 2)
+                            AS pagu_risiko_miliar,
+                        SUM(CASE WHEN pg.risk_label = 'KRITIS' THEN 1 ELSE 0 END) AS n_kritis,
+                        SUM(CASE WHEN pg.risk_label = 'TINGGI' THEN 1 ELSE 0 END) AS n_tinggi
+                    FROM packages_geo pg
+                    INNER JOIN packages p ON pg.id = p.id
+                    WHERE {where} AND ({OWNER_CATEGORY_EXPR}) = ?
+                    GROUP BY pg.kabkot_id, pg.kabkot_name, pg.prov_name
+                    ORDER BY pagu_risiko_miliar DESC
+                    """,
+                    params + [mode],
+                ).fetchdf()
+                modes[mode] = df.to_dict(orient="records")
+        return modes
+
+    def _kg_subset_safe(
+        self,
+        provinsi: str = "ALL",
+        lembaga: str = "ALL",
+        metode: str = "ALL",
+        risk_min: float = 0,
+    ) -> dict:
+        try:
+            return self._kg_subset(provinsi, lembaga, metode, risk_min)
+        except Exception as exc:
+            print(f"[Auditra] KG subset gagal (filter tetap aktif): {exc}")
+            return {"nodes": [], "edges": []}
+
+    def _kg_subset(
+        self,
+        provinsi: str = "ALL",
+        lembaga: str = "ALL",
+        metode: str = "ALL",
+        risk_min: float = 0,
+    ) -> dict:
         if self._kg_nodes is None or self._kg_edges is None:
             return {"nodes": [], "edges": []}
 
-        nodes_df = self._kg_nodes[self._kg_nodes["node_type"].isin(["lembaga", "satker"])]
         edges_df = self._kg_edges
+        where, params = build_where(
+            provinsi=provinsi,
+            lembaga=lembaga,
+            metode=metode,
+            risk_min=risk_min,
+            packages_via_geo=GEO_LOOKUP_CSV.exists(),
+        )
+
+        with self._lock:
+            lem_stats = self.conn.execute(
+                f"""
+                SELECT lembaga AS label,
+                       ROUND(AVG(RPI), 2) AS avg_rpi,
+                       COUNT(*) AS n_paket
+                FROM packages
+                WHERE {where} AND lembaga IS NOT NULL
+                GROUP BY lembaga
+                """,
+                params,
+            ).fetchdf()
+            sk_stats = self.conn.execute(
+                f"""
+                SELECT satker AS label,
+                       ROUND(AVG(RPI), 2) AS avg_rpi,
+                       COUNT(*) AS n_paket
+                FROM packages
+                WHERE {where} AND satker IS NOT NULL
+                GROUP BY satker
+                """,
+                params,
+            ).fetchdf()
+
+        if lem_stats.empty and sk_stats.empty:
+            return {"nodes": [], "edges": []}
+
+        active_ids: set[str] = set()
+        active_ids.update(f"L::{row['label']}" for _, row in lem_stats.iterrows())
+        active_ids.update(f"SK::{row['label']}" for _, row in sk_stats.iterrows())
+
+        nodes_df = self._kg_nodes[
+            self._kg_nodes["node_type"].isin(["lembaga", "satker"])
+            & self._kg_nodes["node_id"].isin(active_ids)
+        ].copy()
+
+        if nodes_df.empty:
+            return {"nodes": [], "edges": []}
+
+        lem_map = lem_stats.set_index("label")
+        sk_map = sk_stats.set_index("label")
+
+        def apply_live_stats(row: pd.Series) -> pd.Series:
+            label = row["label"]
+            if row["node_type"] == "lembaga" and label in lem_map.index:
+                stats_row = lem_map.loc[label]
+                row["avg_rpi"] = float(stats_row["avg_rpi"] or 0)
+                row["n_paket"] = int(stats_row["n_paket"] or 0)
+            elif row["node_type"] == "satker" and label in sk_map.index:
+                stats_row = sk_map.loc[label]
+                row["avg_rpi"] = float(stats_row["avg_rpi"] or 0)
+                row["n_paket"] = int(stats_row["n_paket"] or 0)
+            row["risk_influence"] = (
+                float(row.get("avg_rpi") or 0) * int(row.get("n_paket") or 0) / 100.0
+            )
+            return row
+
+        nodes_df = nodes_df.apply(apply_live_stats, axis=1)
 
         if lembaga and lembaga != "ALL":
             focus_id = f"L::{lembaga}"
+            if focus_id not in set(nodes_df["node_id"]):
+                return {"nodes": [], "edges": []}
             connected = edges_df[edges_df["source"] == focus_id]["target"].tolist()
-            keep = set([focus_id] + connected)
+            keep = {focus_id, *connected}
             nodes_df = nodes_df[nodes_df["node_id"].isin(keep)]
         else:
-            nodes_df = nodes_df.sort_values("risk_influence", ascending=False).head(70)
+            nodes_df = nodes_df.sort_values(
+                ["risk_influence", "avg_rpi"], ascending=False
+            ).head(70)
 
         node_ids = set(nodes_df["node_id"])
         edges_sub = edges_df[
@@ -422,7 +590,11 @@ class DataStore:
             return cached
 
         where, params = build_where(
-            provinsi=provinsi, lembaga=lembaga, metode=metode, risk_min=effective_risk
+            provinsi=provinsi,
+            lembaga=lembaga,
+            metode=metode,
+            risk_min=effective_risk,
+            packages_via_geo=GEO_LOOKUP_CSV.exists(),
         )
         offset = (page - 1) * page_size
 
