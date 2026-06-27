@@ -67,6 +67,11 @@ df['sumberDana_cat'] = df['sumberDana'].apply(
     lambda x: 'APBN' if str(x).startswith('APBN') else x
 )
 
+# Drop baris kosong
+before = len(df)
+df = df.dropna()
+print(f"Baris kosong dihapus: {before - len(df)} baris")
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 print(f"\nClean shape : {df.shape}")
 print(f"\nDistribusi metode:")
