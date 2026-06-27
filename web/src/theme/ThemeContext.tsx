@@ -22,6 +22,8 @@ export interface ThemeColors {
   kgLabel: string;
   kgLabelBg: string;
   kgLabelStroke: string;
+  kgEdge: string;
+  kgEdgeHover: string;
   chartText: string;
   chartGrid: string;
   chartBg: string;
@@ -41,6 +43,8 @@ const DARK: ThemeColors = {
   kgLabel: "#f8fafc",
   kgLabelBg: "rgba(15, 23, 42, 0.92)",
   kgLabelStroke: "#0f172a",
+  kgEdge: "#64748b",
+  kgEdgeHover: "#f8fafc",
   chartText: "#94a3b8",
   chartGrid: "#334155",
   chartBg: "#1e293b",
@@ -60,6 +64,8 @@ const LIGHT: ThemeColors = {
   kgLabel: "#0f172a",
   kgLabelBg: "rgba(255, 255, 255, 0.95)",
   kgLabelStroke: "#ffffff",
+  kgEdge: "#94a3b8",
+  kgEdgeHover: "#ffffff",
   chartText: "#334155",
   chartGrid: "#e2e8f0",
   chartBg: "#ffffff",

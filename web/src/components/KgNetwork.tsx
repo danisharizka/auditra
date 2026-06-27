@@ -29,6 +29,15 @@ interface ConnectionRow {
 const HIGH_COLOR = "#f97316";
 const LOW_COLOR = "#3b82f6";
 
+function edgeColors(colors: { kgEdge: string; kgEdgeHover: string }) {
+  return {
+    color: colors.kgEdge,
+    opacity: 0.85,
+    hover: colors.kgEdgeHover,
+    highlight: colors.kgEdgeHover,
+  };
+}
+
 function buildKgSummary(nodes: Record<string, unknown>[], edges: Record<string, unknown>[]): string {
   const lembaga = nodes.filter((n) => n.node_type === "lembaga").length;
   const satker = nodes.filter((n) => n.node_type === "satker").length;
@@ -43,7 +52,7 @@ function buildKgSummary(nodes: Record<string, unknown>[], edges: Record<string, 
     .join(" & ");
 
   return [
-    `Graf ini menampilkan ${lembaga} Lembaga dan ${satker} Satker yang saling terhubung melalui ${edges.length} relasi pengadaan.`,
+    `Graf ini menampilkan ${lembaga} lembaga dan ${satker} satker yang saling terhubung melalui ${edges.length} relasi pengadaan.`,
     `Node oranye (${high}): rata-rata RPI ≥ 30 (prioritas audit). Node biru (${low}): RPI di bawah ambang.`,
     top
       ? `Lembaga dengan pengaruh risiko tertinggi dalam subgraf: ${top}.`
@@ -108,8 +117,8 @@ export default function KgNetwork({ nodes, edges }: Props) {
     edgeMetaRef.current.forEach((e) => {
       edgesDs.update({
         id: e.id,
-        color: { color: colors.border, opacity: 0.5, highlight: colors.accentOrange },
-        width: Math.min(3, Math.log(e.weight + 1)),
+        color: edgeColors(colors),
+        width: Math.min(4, Math.max(2, Math.log(e.weight + 1))),
       });
     });
   }, [colors]);
@@ -185,8 +194,8 @@ export default function KgNetwork({ nodes, edges }: Props) {
         id: e.id,
         from: e.from,
         to: e.to,
-        width: Math.min(3, Math.log(e.weight + 1)),
-        color: { color: colors.border, opacity: 0.5, highlight: colors.accentOrange },
+        width: Math.min(4, Math.max(2, Math.log(e.weight + 1))),
+        color: edgeColors(colors),
         smooth: { type: "cubicBezier", forceDirection: "none", roundness: 0.2 },
       }))
     );
@@ -211,6 +220,7 @@ export default function KgNetwork({ nodes, edges }: Props) {
         },
         interaction: {
           hover: true,
+          hoverConnectedEdges: true,
           tooltipDelay: 120,
           dragNodes: true,
           dragView: true,
@@ -221,7 +231,10 @@ export default function KgNetwork({ nodes, edges }: Props) {
           selectConnectedEdges: false,
         },
         nodes: { shape: "dot", scaling: { min: 12, max: 36 } },
-        edges: { arrows: { to: { enabled: true, scaleFactor: 0.55 } } },
+        edges: {
+          color: edgeColors(colors),
+          arrows: { to: { enabled: true, scaleFactor: 0.75, type: "arrow" } },
+        },
       }
     );
 
@@ -280,15 +293,6 @@ export default function KgNetwork({ nodes, edges }: Props) {
 
   return (
     <div>
-      <ColorLegend
-        className="mb-3"
-        items={[
-          { color: LOW_COLOR, label: "Biru — RPI < 30 (risiko rendah–sedang)" },
-          { color: HIGH_COLOR, label: "Oranye — RPI ≥ 30 (prioritas audit)" },
-          { color: colors.border, label: "Panah — arah relasi (klik node untuk lihat detail)" },
-        ]}
-      />
-
       <div className="mb-2 flex flex-wrap gap-2">
         <button type="button" onClick={handleFit} className="btn-secondary text-xs">
           Sesuaikan tampilan
@@ -302,19 +306,26 @@ export default function KgNetwork({ nodes, edges }: Props) {
           </button>
         )}
         <span className="self-center text-[11px] text-muted">
-          Klik node · Scroll zoom · Drag geser
+          Klik node · scroll zoom · drag geser
         </span>
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
-        <div className={selectedId ? "lg:col-span-8" : "lg:col-span-12"}>
+        <div className={selectedId ? "relative lg:col-span-8" : "relative lg:col-span-12"}>
           <div ref={ref} className="kg-canvas" />
+          <ColorLegend
+            className="pointer-events-none absolute left-2 top-2 z-10 !flex-col !gap-x-0 !gap-y-1 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-panel)]/92 px-2.5 py-1.5 shadow-sm backdrop-blur-sm"
+            items={[
+              { color: LOW_COLOR, label: "Biru — RPI < 30 (risiko rendah–sedang)" },
+              { color: HIGH_COLOR, label: "Oranye — RPI ≥ 30 (prioritas audit)" },
+            ]}
+          />
         </div>
 
         {selectedId && selectedLabel && (
           <div className="panel lg:col-span-4 !p-3">
             <h3 className="mb-1 text-xs font-semibold text-primary">
-              Relasi: {nodeTypeLabel(selectedNode?.node_type)}
+              Relasi · {nodeTypeLabel(selectedNode?.node_type)}
             </h3>
             <p className="mb-2 text-[11px] font-medium text-primary">{selectedLabel}</p>
             {connections.length === 0 ? (
