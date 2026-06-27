@@ -28,6 +28,8 @@ interface ConnectionRow {
 
 const HIGH_COLOR = "#f97316";
 const LOW_COLOR = "#3b82f6";
+const DIM_NODE_OPACITY = 0.1;
+const DIM_EDGE_OPACITY = 0.05;
 
 function edgeColors(colors: { kgEdge: string; kgEdgeHover: string }) {
   return {
@@ -35,6 +37,26 @@ function edgeColors(colors: { kgEdge: string; kgEdgeHover: string }) {
     opacity: 0.85,
     hover: colors.kgEdgeHover,
     highlight: colors.kgEdgeHover,
+  };
+}
+
+function dimNodeStyle(base: Record<string, unknown>, colors: { kgLabel: string }) {
+  const high = Boolean(base._high);
+  return {
+    id: base.id,
+    color: {
+      background: high ? "rgba(249,115,22,0.18)" : "rgba(59,130,246,0.18)",
+      border: high ? "rgba(194,65,12,0.22)" : "rgba(29,78,216,0.22)",
+    },
+    font: {
+      ...(base.font as object),
+      color: colors.kgLabel,
+      strokeWidth: 2,
+      background: "transparent",
+    },
+    borderWidth: 1,
+    size: Math.max(10, Number(base.size) * 0.82),
+    opacity: DIM_NODE_OPACITY,
   };
 }
 
@@ -57,7 +79,7 @@ function buildKgSummary(nodes: Record<string, unknown>[], edges: Record<string, 
     top
       ? `Lembaga dengan pengaruh risiko tertinggi dalam subgraf: ${top}.`
       : "",
-    "Klik node untuk melihat arah relasi (keluar ↑ / masuk ↓).",
+    "Arahkan kursor ke node untuk sorot relasi · klik untuk panel detail (keluar ↑ / masuk ↓).",
   ]
     .filter(Boolean)
     .join(" ");
@@ -70,9 +92,15 @@ export default function KgNetwork({ nodes, edges }: Props) {
   const edgesDsRef = useRef<DataSet<Record<string, unknown>> | null>(null);
   const nodeMapRef = useRef<Map<string, Record<string, unknown>>>(new Map());
   const edgeMetaRef = useRef<EdgeMeta[]>([]);
+  const nodeBaseRef = useRef<Map<string, Record<string, unknown>>>(new Map());
+  const selectedIdRef = useRef<string | null>(null);
   const { colors } = useTheme();
   const [physicsOn, setPhysicsOn] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
 
   const summary = useMemo(() => buildKgSummary(nodes, edges), [nodes, edges]);
 
@@ -111,9 +139,14 @@ export default function KgNetwork({ nodes, edges }: Props) {
     return rows.sort((a, b) => b.weight - a.weight).slice(0, 12);
   }, [selectedId, selectedNode, nodes, edges]);
 
-  const resetHighlight = useCallback(() => {
+  const resetGraphVisuals = useCallback(() => {
+    const nodesDs = nodesDsRef.current;
     const edgesDs = edgesDsRef.current;
-    if (!edgesDs) return;
+    if (!nodesDs || !edgesDs) return;
+
+    nodeBaseRef.current.forEach((base) => {
+      nodesDs.update(base);
+    });
     edgeMetaRef.current.forEach((e) => {
       edgesDs.update({
         id: e.id,
@@ -121,27 +154,72 @@ export default function KgNetwork({ nodes, edges }: Props) {
         width: Math.min(4, Math.max(2, Math.log(e.weight + 1))),
       });
     });
+    networkRef.current?.unselectAll();
   }, [colors]);
 
-  const highlightNode = useCallback(
-    (nodeId: string) => {
+  const applyNodeFocus = useCallback(
+    (nodeId: string | null, mode: "hover" | "select") => {
       const network = networkRef.current;
+      const nodesDs = nodesDsRef.current;
       const edgesDs = edgesDsRef.current;
-      if (!network || !edgesDs) return;
+      if (!nodesDs || !edgesDs) return;
 
-      resetHighlight();
-      const connected = network.getConnectedEdges(nodeId) as number[];
-      connected.forEach((edgeId) => {
-        edgesDs.update({
-          id: edgeId,
-          color: { color: HIGH_COLOR, opacity: 1, highlight: HIGH_COLOR },
-          width: 4,
-        });
+      if (!nodeId) {
+        resetGraphVisuals();
+        return;
+      }
+
+      const connectedEdges = (network?.getConnectedEdges(nodeId) ?? []) as number[];
+      const focusNodes = new Set<string>([
+        nodeId,
+        ...((network?.getConnectedNodes(nodeId) ?? []) as string[]),
+      ]);
+      const focusEdgeSet = new Set(connectedEdges);
+      const accentEdge = mode === "select" ? HIGH_COLOR : colors.kgEdgeHover;
+
+      nodeBaseRef.current.forEach((base, id) => {
+        if (focusNodes.has(id)) {
+          const isCenter = id === nodeId;
+          nodesDs.update({
+            ...base,
+            opacity: 1,
+            borderWidth: isCenter ? 3 : 2,
+            size: isCenter ? Number(base.size) * 1.1 : base.size,
+          });
+        } else {
+          nodesDs.update(dimNodeStyle(base, colors));
+        }
       });
-      network.selectNodes([nodeId]);
-      network.selectEdges(connected);
+
+      edgeMetaRef.current.forEach((e) => {
+        if (focusEdgeSet.has(e.id)) {
+          edgesDs.update({
+            id: e.id,
+            color: { color: accentEdge, opacity: 1, hover: accentEdge, highlight: accentEdge },
+            width: mode === "select" ? 4 : 3,
+          });
+        } else {
+          edgesDs.update({
+            id: e.id,
+            color: {
+              color: colors.kgEdge,
+              opacity: DIM_EDGE_OPACITY,
+              hover: colors.kgEdgeHover,
+              highlight: colors.kgEdgeHover,
+            },
+            width: 1,
+          });
+        }
+      });
+
+      if (mode === "select") {
+        network?.selectNodes([nodeId]);
+        network?.selectEdges(connectedEdges);
+      } else {
+        network?.unselectAll();
+      }
     },
-    [resetHighlight]
+    [colors, resetGraphVisuals]
   );
 
   useEffect(() => {
@@ -153,13 +231,14 @@ export default function KgNetwork({ nodes, edges }: Props) {
     const nodeMap = new Map<string, Record<string, unknown>>();
     nodes.forEach((n) => nodeMap.set(String(n.node_id), n));
     nodeMapRef.current = nodeMap;
+    nodeBaseRef.current.clear();
 
     const visNodes = new DataSet(
       nodes.map((n) => {
         const id = String(n.node_id);
         const high = isHighRisk(n.avg_rpi);
         const label = formatNodeLabel(n.label, n.node_type);
-        return {
+        const base = {
           id,
           label: label.length > 28 ? `${label.slice(0, 26)}…` : label,
           title: `${nodeTypeLabel(n.node_type)}: ${label}\nRPI rata-rata: ${n.avg_rpi}\nJumlah paket: ${n.n_paket}`,
@@ -176,7 +255,11 @@ export default function KgNetwork({ nodes, edges }: Props) {
           },
           size: Math.max(16, Math.min(32, Number(n.n_paket || 1) / 400)),
           borderWidth: 2,
+          opacity: 1,
+          _high: high,
         };
+        nodeBaseRef.current.set(id, base);
+        return base;
       })
     );
 
@@ -220,7 +303,7 @@ export default function KgNetwork({ nodes, edges }: Props) {
         },
         interaction: {
           hover: true,
-          hoverConnectedEdges: true,
+          hoverConnectedEdges: false,
           tooltipDelay: 120,
           dragNodes: true,
           dragView: true,
@@ -243,15 +326,25 @@ export default function KgNetwork({ nodes, edges }: Props) {
       setPhysicsOn(false);
     });
 
+    network.on("hoverNode", (params) => {
+      const nodeId = params.node as string;
+      applyNodeFocus(nodeId, "hover");
+    });
+
+    network.on("blurNode", () => {
+      const sel = selectedIdRef.current;
+      if (sel) applyNodeFocus(sel, "select");
+      else resetGraphVisuals();
+    });
+
     network.on("click", (params) => {
       if (params.nodes.length > 0) {
         const nodeId = params.nodes[0] as string;
         setSelectedId(nodeId);
-        highlightNode(nodeId);
+        applyNodeFocus(nodeId, "select");
       } else {
         setSelectedId(null);
-        resetHighlight();
-        network.unselectAll();
+        resetGraphVisuals();
       }
     });
 
@@ -261,8 +354,9 @@ export default function KgNetwork({ nodes, edges }: Props) {
       networkRef.current = null;
       nodesDsRef.current = null;
       edgesDsRef.current = null;
+      nodeBaseRef.current.clear();
     };
-  }, [nodes, edges, colors, highlightNode, resetHighlight]);
+  }, [nodes, edges, colors, applyNodeFocus, resetGraphVisuals]);
 
   const handleFit = () =>
     networkRef.current?.fit({ animation: { duration: 400, easingFunction: "easeInOutQuad" } });
@@ -275,8 +369,7 @@ export default function KgNetwork({ nodes, edges }: Props) {
 
   const handleClearSelection = () => {
     setSelectedId(null);
-    resetHighlight();
-    networkRef.current?.unselectAll();
+    resetGraphVisuals();
   };
 
   if (nodes.length === 0) {
@@ -306,7 +399,7 @@ export default function KgNetwork({ nodes, edges }: Props) {
           </button>
         )}
         <span className="self-center text-[11px] text-muted">
-          Klik node · scroll zoom · drag geser
+          Arahkan ke node · klik detail · scroll zoom · drag geser
         </span>
       </div>
 
