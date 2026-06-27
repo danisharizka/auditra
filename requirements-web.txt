@@ -3,7 +3,3 @@ fastapi
 uvicorn[standard]
 duckdb
 python-multipart
-
-# Legacy Dash dashboard (optional)
-dash
-dash-bootstrap-components

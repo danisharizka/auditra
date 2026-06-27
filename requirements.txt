@@ -7,10 +7,5 @@ scikit-learn
 scipy
 pyyaml
 
-# Testing (opsional)
+# Testing
 pytest
-
-# Legacy dashboard (opsional)
-streamlit
-dash
-dash-bootstrap-components
