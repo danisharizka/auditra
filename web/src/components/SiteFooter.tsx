@@ -1,4 +1,4 @@
-const SIRUP_URL = "https://sirup.lkpp.go.id/";
+const SIRUP_URL = "https://sirup.inaproc.id/sirup/caripaketctr/index";
 const UNIVERSITY = "Universitas Pembangunan Nasional Veteran Jawa Timur";
 
 export default function SiteFooter() {
