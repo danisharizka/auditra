@@ -57,8 +57,8 @@ function buildKgSummary(nodes: Record<string, unknown>[], edges: Record<string, 
 export default function KgNetwork({ nodes, edges }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const networkRef = useRef<Network | null>(null);
-  const nodesDsRef = useRef<DataSet | null>(null);
-  const edgesDsRef = useRef<DataSet | null>(null);
+  const nodesDsRef = useRef<DataSet<Record<string, unknown>> | null>(null);
+  const edgesDsRef = useRef<DataSet<Record<string, unknown>> | null>(null);
   const nodeMapRef = useRef<Map<string, Record<string, unknown>>>(new Map());
   const edgeMetaRef = useRef<EdgeMeta[]>([]);
   const { colors } = useTheme();
