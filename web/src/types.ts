@@ -1,3 +1,5 @@
+export type MapOwnerMode = "kl" | "pemprov" | "pemkot" | "others";
+
 export interface Filters {
   provinsi: string;
   lembaga: string;
@@ -23,6 +25,13 @@ export interface OverviewStats {
   split_contract: number;
 }
 
+export interface GeoCoverage {
+  total_packages: number;
+  mapped_packages: number;
+  unmapped_packages: number;
+  multi_lokasi_packages: number;
+}
+
 export interface FilterOptions {
   lembaga: string[];
   metode: string[];
@@ -45,7 +54,9 @@ export interface DashboardBundle {
   scatter: { pagu_miliar: number; RPI: number; risk_label: string }[];
   rank_lembaga: RankRow[];
   choropleth: ChoroplethRow[];
+  choropleth_modes: Record<MapOwnerMode, ChoroplethRow[]>;
   rank_provinsi: RankRow[];
+  geo_coverage: GeoCoverage;
   kg: { nodes: Record<string, unknown>[]; edges: Record<string, unknown>[] };
 }
 
@@ -56,6 +67,7 @@ export interface ChoroplethRow {
   n_paket: number;
   avg_rpi: number;
   total_pagu_miliar: number;
+  pagu_risiko_miliar?: number;
   n_kritis: number;
   n_tinggi: number;
 }
@@ -66,5 +78,7 @@ export interface RankRow {
   avg_rpi: number;
   n_kritis: number;
   n_tinggi: number;
+  n_ekstrem?: number;
+  total_pagu_miliar?: number;
   n_paket: number;
 }
