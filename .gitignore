@@ -8,6 +8,8 @@ output/auditra.duckdb
 output/kg_nodes.csv
 output/kg_edges.csv
 output/reports/
+!output/chunks/
+!output/chunks/*.parquet
 web/node_modules
 web/dist
 web/tsconfig.tsbuildinfo

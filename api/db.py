@@ -13,6 +13,8 @@ import pandas as pd
 from api.cache import TTLCache
 from api.config import (
     DASHBOARD_CACHE_SIZE,
+    DATA_CHUNKS_DIR,
+    DATA_CHUNKS_GLOB,
     DATA_NETWORK_CSV,
     DATA_NETWORK_PARQUET,
     DUCKDB_CACHE,
@@ -66,9 +68,14 @@ class DataStore:
         self.conn.execute("SET enable_object_cache TO true")
 
     def _source_mtime(self) -> float:
+        chunks = list(DATA_CHUNKS_DIR.glob("*.parquet")) if DATA_CHUNKS_DIR.exists() else []
+        if chunks:
+            return max(f.stat().st_mtime for f in chunks)
         if DATA_NETWORK_PARQUET.exists():
             return DATA_NETWORK_PARQUET.stat().st_mtime
-        return DATA_NETWORK_CSV.stat().st_mtime
+        if DATA_NETWORK_CSV.exists():
+            return DATA_NETWORK_CSV.stat().st_mtime
+        return 0
 
     def _cache_is_fresh(self) -> bool:
         if not DUCKDB_CACHE.exists():
@@ -100,21 +107,31 @@ class DataStore:
 
     def _ensure_database(self) -> None:
         if self._cache_is_fresh():
-            self.source_path = str(
-                DATA_NETWORK_PARQUET if DATA_NETWORK_PARQUET.exists() else DATA_NETWORK_CSV
-            )
+            if DATA_CHUNKS_DIR.exists() and list(DATA_CHUNKS_DIR.glob("*.parquet")):
+                self.source_path = str(DATA_CHUNKS_GLOB)
+            else:
+                self.source_path = str(
+                    DATA_NETWORK_PARQUET if DATA_NETWORK_PARQUET.exists() else DATA_NETWORK_CSV
+                )
             self.source_kind = "duckdb_cache"
             return
 
-        if not DATA_NETWORK_CSV.exists() and not DATA_NETWORK_PARQUET.exists():
-            raise FileNotFoundError(
-                "Dataset utama belum ada. Jalankan pipeline:\n"
-                "  python 01_cleaning.py … python 03b_geo_matching.py"
-            )
+        chunks = list(DATA_CHUNKS_DIR.glob("*.parquet")) if DATA_CHUNKS_DIR.exists() else []
+        if chunks:
+            source_file = str(DATA_CHUNKS_GLOB.as_posix())
+            self.source_path = source_file
+            self.source_kind = "parquet_chunks"
+        else:
+            if not DATA_NETWORK_CSV.exists() and not DATA_NETWORK_PARQUET.exists():
+                raise FileNotFoundError(
+                    "Dataset utama belum ada. Jalankan pipeline:\n"
+                    "  python 01_cleaning.py … python 03b_geo_matching.py"
+                )
 
-        parquet = self._ensure_parquet()
-        self.source_path = str(parquet)
-        self.source_kind = "parquet"
+            parquet = self._ensure_parquet()
+            source_file = str(parquet.as_posix())
+            self.source_path = source_file
+            self.source_kind = "parquet"
 
         if DUCKDB_CACHE.exists():
             DUCKDB_CACHE.unlink()
@@ -127,7 +144,7 @@ class DataStore:
         con.execute(
             f"""
             CREATE TABLE packages AS
-            SELECT * FROM read_parquet('{parquet.as_posix()}')
+            SELECT * FROM read_parquet('{source_file}')
             """
         )
 

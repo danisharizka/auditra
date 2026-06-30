@@ -15,7 +15,7 @@ export default function StatCards({ stats, geoCoverage }: Props) {
   return (
     <div className="mb-4 grid grid-cols-1 gap-3 lg:grid-cols-12">
       <div className="stat-card border-blue-500 lg:col-span-4">
-        <p className="text-[11px] uppercase tracking-wide text-muted">Total Pagu (filter)</p>
+        <p className="text-[11px] uppercase tracking-wide text-muted">Total Nilai Pagu (filter)</p>
         <p className="mt-1 text-3xl font-extrabold text-primary">
           {stats ? formatPaguCompact(stats.total_pagu_miliar) : "—"}
         </p>
