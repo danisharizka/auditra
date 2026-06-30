@@ -50,6 +50,7 @@ class DataStore:
         self._ensure_database()
         self.conn = duckdb.connect(str(DUCKDB_CACHE), read_only=False)
         self._configure_session()
+        self._ensure_packages_geo(self.conn)
         self._warm_static_caches()
         elapsed = time.perf_counter() - t0
         print(f"[Auditra] Database ready in {elapsed:.1f}s ({self._meta_cache['total_rows']:,} rows)")
@@ -77,13 +78,66 @@ class DataStore:
             return DATA_NETWORK_CSV.stat().st_mtime
         return 0
 
-    def _cache_is_fresh(self) -> bool:
+    def _table_exists(self, conn: duckdb.DuckDBPyConnection, name: str) -> bool:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?",
+            [name],
+        ).fetchone()
+        return int(row[0]) > 0
+
+    def _cache_is_usable(self) -> bool:
+        """Cache exists, is newer than sources, and has the packages table."""
         if not DUCKDB_CACHE.exists():
             return False
         try:
-            return DUCKDB_CACHE.stat().st_mtime >= self._source_mtime()
-        except OSError:
+            if DUCKDB_CACHE.stat().st_mtime < self._source_mtime():
+                return False
+            test_con = duckdb.connect(str(DUCKDB_CACHE), read_only=True)
+            ok = self._table_exists(test_con, "packages")
+            test_con.close()
+            return ok
+        except Exception:
             return False
+
+    def _create_packages_geo(self, conn: duckdb.DuckDBPyConnection) -> None:
+        if GEO_LOOKUP_CSV.exists():
+            geo = GEO_LOOKUP_CSV.as_posix()
+            conn.execute(
+                f"""
+                CREATE OR REPLACE TABLE geo_lookup AS
+                SELECT * FROM read_csv_auto('{geo}', header=true)
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE packages_geo AS
+                SELECT
+                    p.id, p.RPI, p.risk_label, p.pagu, p.lembaga, p.metode, p.lokasi,
+                    p.s1_metode, p.s2_pagu_anomali, p.s3_fragmentasi, p.s4_konsentrasi,
+                    p.s5_umkm, p.s6_dana_metode, p.s7_reputasi, p.paket,
+                    g.kabkot_id, g.kabkot_name, g.prov_name
+                FROM packages p
+                INNER JOIN geo_lookup g ON p.lokasi = g.lokasi_sirup
+                """
+            )
+        else:
+            conn.execute(
+                """
+                CREATE TABLE packages_geo AS
+                SELECT *, CAST(NULL AS VARCHAR) AS kabkot_id,
+                       CAST(NULL AS VARCHAR) AS kabkot_name,
+                       CAST(NULL AS VARCHAR) AS prov_name
+                FROM packages WHERE 1=0
+                """
+            )
+
+    def _ensure_packages_geo(self, conn: duckdb.DuckDBPyConnection) -> None:
+        if self._table_exists(conn, "packages_geo"):
+            return
+        if not self._table_exists(conn, "packages"):
+            raise RuntimeError("DuckDB cache is missing the packages table")
+        print("[Auditra] Repairing cache: creating packages_geo table…")
+        self._create_packages_geo(conn)
 
     def _ensure_parquet(self) -> Path:
         if DATA_NETWORK_PARQUET.exists():
@@ -106,7 +160,7 @@ class DataStore:
         return DATA_NETWORK_PARQUET
 
     def _ensure_database(self) -> None:
-        if self._cache_is_fresh():
+        if self._cache_is_usable():
             if DATA_CHUNKS_DIR.exists() and list(DATA_CHUNKS_DIR.glob("*.parquet")):
                 self.source_path = str(DATA_CHUNKS_GLOB)
             else:
@@ -133,12 +187,14 @@ class DataStore:
             self.source_path = source_file
             self.source_kind = "parquet"
 
-        if DUCKDB_CACHE.exists():
-            DUCKDB_CACHE.unlink()
+        building = DUCKDB_CACHE.with_suffix(".duckdb.building")
+        for stale in (DUCKDB_CACHE, building):
+            if stale.exists():
+                stale.unlink()
 
         print("[Auditra] Building DuckDB cache (one-time, ~1-3 min)…")
         t0 = time.perf_counter()
-        con = duckdb.connect(str(DUCKDB_CACHE))
+        con = duckdb.connect(str(building))
         con.execute("SET threads TO 4")
 
         con.execute(
@@ -147,39 +203,10 @@ class DataStore:
             SELECT * FROM read_parquet('{source_file}')
             """
         )
-
-        if GEO_LOOKUP_CSV.exists():
-            geo = GEO_LOOKUP_CSV.as_posix()
-            con.execute(
-                f"""
-                CREATE TABLE geo_lookup AS
-                SELECT * FROM read_csv_auto('{geo}', header=true)
-                """
-            )
-            con.execute(
-                """
-                CREATE TABLE packages_geo AS
-                SELECT
-                    p.id, p.RPI, p.risk_label, p.pagu, p.lembaga, p.metode, p.lokasi,
-                    p.s1_metode, p.s2_pagu_anomali, p.s3_fragmentasi, p.s4_konsentrasi,
-                    p.s5_umkm, p.s6_dana_metode, p.s7_reputasi, p.paket,
-                    g.kabkot_id, g.kabkot_name, g.prov_name
-                FROM packages p
-                INNER JOIN geo_lookup g ON p.lokasi = g.lokasi_sirup
-                """
-            )
-        else:
-            con.execute(
-                """
-                CREATE TABLE packages_geo AS
-                SELECT *, CAST(NULL AS VARCHAR) AS kabkot_id,
-                       CAST(NULL AS VARCHAR) AS kabkot_name,
-                       CAST(NULL AS VARCHAR) AS prov_name
-                FROM packages WHERE 1=0
-                """
-            )
+        self._create_packages_geo(con)
 
         con.close()
+        building.replace(DUCKDB_CACHE)
         print(f"[Auditra] DuckDB cache built in {time.perf_counter() - t0:.1f}s")
 
     def _warm_static_caches(self) -> None:
@@ -216,6 +243,14 @@ class DataStore:
         with self._lock:
             total = int(self.conn.execute("SELECT COUNT(*) FROM packages").fetchone()[0])
             if not GEO_LOOKUP_CSV.exists() or total == 0:
+                return {
+                    "total_packages": total,
+                    "mapped_packages": 0,
+                    "unmapped_packages": total,
+                    "multi_lokasi_packages": 0,
+                }
+
+            if not self._table_exists(self.conn, "packages_geo"):
                 return {
                     "total_packages": total,
                     "mapped_packages": 0,
