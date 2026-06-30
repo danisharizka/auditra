@@ -1,7 +1,12 @@
 import axios from "axios";
 
+const configuredApiUrl = import.meta.env.VITE_API_URL as string | undefined;
+
 export function formatApiError(error: unknown): string {
   if (axios.isAxiosError(error)) {
+    if (error.code === "ECONNABORTED") {
+      return "Permintaan ke API habis waktu (query berat). Tunggu sebentar lalu muat ulang halaman.";
+    }
     if (error.response?.status === 503) {
       const detail = error.response.data?.detail;
       if (typeof detail === "string") return detail;
@@ -11,11 +16,17 @@ export function formatApiError(error: unknown): string {
       return typeof detail === "string" ? detail : JSON.stringify(detail);
     }
     if (error.code === "ERR_NETWORK" || !error.response) {
-      const isProd = import.meta.env.PROD;
-      if (isProd) {
+      if (import.meta.env.PROD) {
         return (
           "Backend tidak terhubung. Periksa VITE_API_URL di Vercel dan CORS_ORIGINS di Railway.\n" +
           "API: https://auditra-production.up.railway.app/api/health"
+        );
+      }
+      if (configuredApiUrl && !configuredApiUrl.startsWith("/")) {
+        return (
+          `Backend tidak terhubung ke ${configuredApiUrl}.\n` +
+          "Tambahkan http://localhost:5173 ke CORS_ORIGINS di Railway, atau jalankan API lokal:\n" +
+          "python -m uvicorn api.main:app --reload --port 8000"
         );
       }
       return (

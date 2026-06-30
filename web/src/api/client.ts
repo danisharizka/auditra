@@ -13,6 +13,11 @@ const api = axios.create({
   timeout: 120_000,
 });
 
+const dashboardApi = axios.create({
+  baseURL: import.meta.env.VITE_API_URL ?? "/api",
+  timeout: 300_000,
+});
+
 async function withWarmupRetry<T>(fn: () => Promise<T>, attempts = 40): Promise<T> {
   let lastError: unknown;
   for (let i = 0; i < attempts; i++) {
@@ -22,6 +27,10 @@ async function withWarmupRetry<T>(fn: () => Promise<T>, attempts = 40): Promise<
       lastError = e;
       if (axios.isAxiosError(e) && e.response?.status === 503) {
         await new Promise((r) => setTimeout(r, 3000));
+        continue;
+      }
+      if (axios.isAxiosError(e) && e.response?.status === 502 && i < attempts - 1) {
+        await new Promise((r) => setTimeout(r, 5000));
         continue;
       }
       throw e;
@@ -52,7 +61,9 @@ export async function fetchFilterOptions(): Promise<FilterOptions> {
 
 /** All chart data in ONE request (fast, cached server-side). */
 export async function fetchDashboardBundle(f: Filters): Promise<DashboardBundle> {
-  const { data } = await api.get<DashboardBundle>("/dashboard/bundle", { params: params(f) });
+  const { data } = await withWarmupRetry(() =>
+    dashboardApi.get<DashboardBundle>("/dashboard/bundle", { params: params(f) })
+  );
   return data;
 }
 
@@ -61,14 +72,16 @@ export async function fetchPackages(
   page: number,
   pageSize: number
 ): Promise<PaginatedPackages> {
-  const { data } = await api.get<PaginatedPackages>("/packages", {
-    params: {
-      ...params(f),
-      risk_min: Math.max(f.riskMin, 30),
-      page,
-      page_size: pageSize,
-    },
-  });
+  const { data } = await withWarmupRetry(() =>
+    api.get<PaginatedPackages>("/packages", {
+      params: {
+        ...params(f),
+        risk_min: Math.max(f.riskMin, 30),
+        page,
+        page_size: pageSize,
+      },
+    })
+  );
   return data;
 }
 
