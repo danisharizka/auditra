@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.config import CORS_ORIGINS
-from api.db import DataStore
+from api.db import DataStore, _use_parquet_views
 from api.routers import charts, dashboard, filters, geo, kg, meta, overview, packages
 
 
@@ -21,9 +21,11 @@ async def lifespan(app: FastAPI):
         store = DataStore.get()
         store.fetch_dashboard_bundle()
         print("[Auditra] Startup warm-up complete.")
-    else:
+    elif _use_parquet_views():
         DataStore.begin_background_init()
-        print("[Auditra] Background database init started.")
+        print("[Auditra] Background database init started (parquet view mode).")
+    else:
+        print("[Auditra] Lazy init on first request.")
     yield
 
 
