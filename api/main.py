@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -10,10 +11,18 @@ from api.routers import charts, dashboard, filters, geo, kg, meta, overview, pac
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Warm DuckDB cache + default dashboard bundle on startup."""
-    store = DataStore.get()
-    store.fetch_dashboard_bundle()
-    print("[Auditra] Startup warm-up complete.")
+    """Optionally warm DuckDB cache on startup."""
+    warmup_enabled = os.getenv("AUDITRA_WARMUP_ON_STARTUP", "0").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    if warmup_enabled:
+        store = DataStore.get()
+        store.fetch_dashboard_bundle()
+        print("[Auditra] Startup warm-up complete.")
+    else:
+        print("[Auditra] Startup warm-up skipped (lazy init mode).")
     yield
 
 
