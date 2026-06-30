@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 
-from api.db import DataStore
+from api.deps import require_store
 from api.filters import build_where
 from api.schemas import OverviewStats
 
@@ -15,7 +15,7 @@ def overview(
     risk_min: float = Query(0),
 ):
     try:
-        store = DataStore.get()
+        store = require_store()
     except FileNotFoundError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 

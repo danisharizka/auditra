@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 
-from api.db import DataStore
+from api.deps import require_store
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
 
@@ -17,7 +17,7 @@ def dashboard_bundle(
     Replaces 9 separate API calls from the frontend.
     """
     try:
-        store = DataStore.get()
+        store = require_store()
         return store.fetch_dashboard_bundle(provinsi, lembaga, metode, risk_min)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

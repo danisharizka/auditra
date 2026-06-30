@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 
-from api.db import DataStore
+from api.deps import require_store
 from api.schemas import PaginatedPackages
 
 router = APIRouter(prefix="/api", tags=["packages"])
@@ -16,7 +16,7 @@ def list_packages(
     page_size: int = Query(50, ge=1, le=500),
 ):
     try:
-        store = DataStore.get()
+        store = require_store()
         return store.fetch_packages_page(
             provinsi, lembaga, metode, risk_min, page, page_size
         )

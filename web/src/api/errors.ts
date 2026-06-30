@@ -11,6 +11,13 @@ export function formatApiError(error: unknown): string {
       return typeof detail === "string" ? detail : JSON.stringify(detail);
     }
     if (error.code === "ERR_NETWORK" || !error.response) {
+      const isProd = import.meta.env.PROD;
+      if (isProd) {
+        return (
+          "Backend tidak terhubung. Periksa VITE_API_URL di Vercel dan CORS_ORIGINS di Railway.\n" +
+          "API: https://auditra-production.up.railway.app/api/health"
+        );
+      }
       return (
         "Backend tidak terhubung. Jalankan di terminal terpisah:\n" +
         "python -m uvicorn api.main:app --reload --port 8000"

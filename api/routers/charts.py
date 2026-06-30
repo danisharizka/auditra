@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 
+from api.deps import require_store
 from api.db import DataStore
 from api.filters import build_where
 
@@ -7,10 +8,7 @@ router = APIRouter(prefix="/api", tags=["charts"])
 
 
 def _require_store() -> DataStore:
-    try:
-        return DataStore.get()
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return require_store()
 
 
 @router.get("/charts/risk-distribution")

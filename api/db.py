@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from pathlib import Path
@@ -27,6 +28,24 @@ from api.filters import build_where
 from api.owner_category import MAP_MODES, OWNER_CATEGORY_EXPR
 
 
+class DataStoreNotReady(Exception):
+    """Raised while the singleton is still initializing (background warm-up)."""
+
+
+_init_state = "pending"  # pending | loading | ready | error
+_init_error: str | None = None
+
+
+def _use_parquet_views() -> bool:
+    """Query parquet in-place (low RAM). Default on Railway; off locally unless set."""
+    explicit = os.getenv("AUDITRA_USE_PARQUET_VIEWS", "").lower()
+    if explicit in ("1", "true", "yes"):
+        return True
+    if explicit in ("0", "false", "no"):
+        return False
+    return bool(os.getenv("RAILWAY_ENVIRONMENT"))
+
+
 class DataStore:
     """Singleton DuckDB over a materialized local cache (auditra.duckdb)."""
 
@@ -48,20 +67,70 @@ class DataStore:
 
         t0 = time.perf_counter()
         self._ensure_database()
-        self.conn = duckdb.connect(str(DUCKDB_CACHE), read_only=False)
-        self._configure_session()
-        self._ensure_packages_geo(self.conn)
+        if _use_parquet_views():
+            self.conn = duckdb.connect(":memory:")
+            self._configure_session()
+            self._setup_parquet_views(self.conn)
+        else:
+            self.conn = duckdb.connect(str(DUCKDB_CACHE), read_only=False)
+            self._configure_session()
+            self._ensure_packages_geo(self.conn)
         self._warm_static_caches()
         elapsed = time.perf_counter() - t0
         print(f"[Auditra] Database ready in {elapsed:.1f}s ({self._meta_cache['total_rows']:,} rows)")
 
     @classmethod
-    def get(cls) -> "DataStore":
-        if cls._instance is None:
+    def _ensure_built(cls) -> None:
+        global _init_state, _init_error
+        if cls._instance is not None:
+            return
+        with cls._init_lock:
+            if cls._instance is not None:
+                return
+            if _init_state == "error":
+                raise RuntimeError(_init_error or "Database gagal diinisialisasi.")
+            _init_state = "loading"
+        try:
+            instance = cls()
+        except Exception as exc:
             with cls._init_lock:
-                if cls._instance is None:
-                    cls._instance = cls()
+                _init_state = "error"
+                _init_error = str(exc)
+            raise
+        with cls._init_lock:
+            cls._instance = instance
+            _init_state = "ready"
+
+    @classmethod
+    def get(cls) -> "DataStore":
+        if _init_state == "loading":
+            raise DataStoreNotReady(
+                "Database sedang disiapkan. Tunggu 30–90 detik lalu muat ulang halaman."
+            )
+        if _init_state == "error":
+            raise RuntimeError(_init_error or "Database gagal diinisialisasi.")
+        if cls._instance is None:
+            cls._ensure_built()
         return cls._instance
+
+    @classmethod
+    def is_ready(cls) -> bool:
+        return _init_state == "ready" and cls._instance is not None
+
+    @classmethod
+    def begin_background_init(cls) -> None:
+        """Start DataStore warm-up on a worker thread (non-blocking startup)."""
+        if cls.is_ready() or _init_state in ("loading", "ready"):
+            return
+
+        def _run() -> None:
+            try:
+                cls._ensure_built()
+                print("[Auditra] Background database init complete.")
+            except Exception as exc:
+                print(f"[Auditra] Background init failed: {exc}")
+
+        threading.Thread(target=_run, name="auditra-db-init", daemon=True).start()
 
     def _configure_session(self) -> None:
         threads = min(8, max(2, __import__("os").cpu_count() or 4))
@@ -99,18 +168,22 @@ class DataStore:
         except Exception:
             return False
 
-    def _create_packages_geo(self, conn: duckdb.DuckDBPyConnection) -> None:
+    def _create_packages_geo(
+        self, conn: duckdb.DuckDBPyConnection, *, as_view: bool = False
+    ) -> None:
+        rel = "VIEW" if as_view else "TABLE"
         if GEO_LOOKUP_CSV.exists():
             geo = GEO_LOOKUP_CSV.as_posix()
+            if not self._table_exists(conn, "geo_lookup"):
+                conn.execute(
+                    f"""
+                    CREATE TABLE geo_lookup AS
+                    SELECT * FROM read_csv_auto('{geo}', header=true)
+                    """
+                )
             conn.execute(
                 f"""
-                CREATE OR REPLACE TABLE geo_lookup AS
-                SELECT * FROM read_csv_auto('{geo}', header=true)
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE packages_geo AS
+                CREATE OR REPLACE {rel} packages_geo AS
                 SELECT
                     p.id, p.RPI, p.risk_label, p.pagu, p.lembaga, p.metode, p.lokasi,
                     p.s1_metode, p.s2_pagu_anomali, p.s3_fragmentasi, p.s4_konsentrasi,
@@ -122,8 +195,8 @@ class DataStore:
             )
         else:
             conn.execute(
-                """
-                CREATE TABLE packages_geo AS
+                f"""
+                CREATE OR REPLACE {rel} packages_geo AS
                 SELECT *, CAST(NULL AS VARCHAR) AS kabkot_id,
                        CAST(NULL AS VARCHAR) AS kabkot_name,
                        CAST(NULL AS VARCHAR) AS prov_name
@@ -159,7 +232,35 @@ class DataStore:
         print(f"[Auditra] Parquet saved in {time.perf_counter() - t0:.1f}s")
         return DATA_NETWORK_PARQUET
 
+    def _resolve_parquet_source(self) -> str:
+        chunks = list(DATA_CHUNKS_DIR.glob("*.parquet")) if DATA_CHUNKS_DIR.exists() else []
+        if chunks:
+            self.source_path = str(DATA_CHUNKS_GLOB.as_posix())
+            self.source_kind = "parquet_chunks"
+            return self.source_path
+        if not DATA_NETWORK_CSV.exists() and not DATA_NETWORK_PARQUET.exists():
+            raise FileNotFoundError(
+                "Dataset utama belum ada. Jalankan pipeline:\n"
+                "  python 01_cleaning.py … python 03b_geo_matching.py"
+            )
+        parquet = self._ensure_parquet()
+        self.source_path = str(parquet.as_posix())
+        self.source_kind = "parquet"
+        return self.source_path
+
+    def _setup_parquet_views(self, conn: duckdb.DuckDBPyConnection) -> None:
+        source = self._resolve_parquet_source()
+        print(f"[Auditra] Parquet view mode (low RAM) over {source}")
+        conn.execute(
+            f"CREATE VIEW packages AS SELECT * FROM read_parquet('{source}')"
+        )
+        self._create_packages_geo(conn, as_view=True)
+
     def _ensure_database(self) -> None:
+        if _use_parquet_views():
+            self._resolve_parquet_source()
+            return
+
         if self._cache_is_usable():
             if DATA_CHUNKS_DIR.exists() and list(DATA_CHUNKS_DIR.glob("*.parquet")):
                 self.source_path = str(DATA_CHUNKS_GLOB)
@@ -170,22 +271,7 @@ class DataStore:
             self.source_kind = "duckdb_cache"
             return
 
-        chunks = list(DATA_CHUNKS_DIR.glob("*.parquet")) if DATA_CHUNKS_DIR.exists() else []
-        if chunks:
-            source_file = str(DATA_CHUNKS_GLOB.as_posix())
-            self.source_path = source_file
-            self.source_kind = "parquet_chunks"
-        else:
-            if not DATA_NETWORK_CSV.exists() and not DATA_NETWORK_PARQUET.exists():
-                raise FileNotFoundError(
-                    "Dataset utama belum ada. Jalankan pipeline:\n"
-                    "  python 01_cleaning.py … python 03b_geo_matching.py"
-                )
-
-            parquet = self._ensure_parquet()
-            source_file = str(parquet.as_posix())
-            self.source_path = source_file
-            self.source_kind = "parquet"
+        source_file = self._resolve_parquet_source()
 
         building = DUCKDB_CACHE.with_suffix(".duckdb.building")
         for stale in (DUCKDB_CACHE, building):
@@ -217,8 +303,8 @@ class DataStore:
                 "total_rows": int(row[0]),
                 "total_columns": len(cols),
                 "columns": cols["column_name"].tolist(),
-                "source_file": str(DUCKDB_CACHE),
-                "source_kind": "duckdb_cache",
+                "source_file": self.source_path or str(DUCKDB_CACHE),
+                "source_kind": "parquet_views" if _use_parquet_views() else "duckdb_cache",
                 "integrity": "full",
                 "note": (
                     "Seluruh baris & kolom pipeline tersimpan di server (materialized DuckDB). "
@@ -237,7 +323,8 @@ class DataStore:
             with open(GEOJSON_PATH, encoding="utf-8") as f:
                 self._geojson_cache = json.load(f)
 
-        self._geo_coverage_cache = self._compute_geo_coverage()
+        if not _use_parquet_views():
+            self._geo_coverage_cache = self._compute_geo_coverage()
 
     def _compute_geo_coverage(self) -> dict:
         with self._lock:

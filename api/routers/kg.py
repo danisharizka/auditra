@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 
-from api.db import DataStore
+from api.deps import require_store
 
 router = APIRouter(prefix="/api", tags=["kg"])
 
@@ -11,7 +11,7 @@ def knowledge_graph(
     max_nodes: int = Query(70, ge=10, le=200),
 ):
     try:
-        store = DataStore.get()
+        store = require_store()
         nodes_df = store.load_kg_nodes()
         edges_df = store.load_kg_edges()
     except FileNotFoundError as exc:
