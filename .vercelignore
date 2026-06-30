@@ -1,0 +1,22 @@
+# Backend/API files (Railway deployment only)
+api/
+requirements.txt
+requirements-web.txt
+*.py
+
+# Data and pipeline assets not needed for frontend deploy
+data/
+geo/
+output/
+pipeline/
+tests/
+docs/
+scripts/
+*.ipynb
+
+# Local/dev artifacts
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+*.pyc
